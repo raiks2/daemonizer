@@ -20,6 +20,10 @@ sub init_env_vars {
     $ENV{DAEMONIZER_PIDFILE_DIR}    = "$BASE_DIR/pidfiles";
     $ENV{DAEMONIZER_LOGFILE_DIR}    = "$BASE_DIR/logs";
     $ENV{DAEMONIZER_APPSCRIPTS_DIR} = "$BASE_DIR/startup-scripts";
+
+    mkdir $ENV{DAEMONIZER_PIDFILE_DIR} unless -e $ENV{DAEMONIZER_PIDFILE_DIR};
+    mkdir $ENV{DAEMONIZER_LOGFILE_DIR} unless -e $ENV{DAEMONIZER_LOGFILE_DIR};
+    mkdir $ENV{DAEMONIZER_APPSCRIPTS_DIR} unless -e $ENV{DAEMONIZER_APPSCRIPTS_DIR};
 }
 
 my $mode = 'background';
