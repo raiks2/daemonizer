@@ -1,0 +1,90 @@
+#!/usr/bin/perl
+
+# This script "deamonizes" an application passed as a command-line argument
+# by sending it to the background and detaching from a controlling terminal
+# Usage: ./daemonize <app> <logfile>
+
+use strict;
+use warnings;
+
+sub create_pidfile {
+    my ($pidfile, $app) = @_;
+    open my $pidfh, '>', $pidfile or die "Failed to open pidfile $pidfile!";
+    print $pidfh $$;
+}
+
+=pod
+    Sets up a SIGALRM handler to perform a periodic check of the pidfile existence
+=cut
+
+sub setup_sigalrm_handler {
+    my ($pid, $pidfile) = @_;
+    my $check_interval = 5;
+    alarm $check_interval;
+    $SIG{ALRM} = sub {
+        unless (-e $pidfile) {
+            print "Crap, someone has deleted a PID file meanwhile, killing $pid right away!\n";
+            kill 'KILL', $pid;
+            exit 1;
+        }
+        alarm $check_interval;
+    };
+}
+
+=pod
+    Runs a post-start script if one exists
+=cut
+
+sub run_post_start_script {
+    my ($appscripts_dir, $app) = @_;
+    my $after_start_script = "$appscripts_dir/$app-after-start";
+    my $delay_sec = 20;
+    if (-e $after_start_script) {
+        print time()." - Waiting for $delay_sec seconds and performing post-start actions...\n";
+        sleep $delay_sec;
+        my $pid = fork;
+        # Child: execute a start script
+        unless ($pid) {
+            exec $after_start_script or die "Cannot exec '$after_start_script'!";
+        }
+        # Parent: wait for the child to exit
+        waitpid $pid, 0;
+        print time()." - Post-start actions are completed...\n";
+    }
+}
+
+my ($appcmd, $log) = @ARGV;
+my ($app, $cmd) = $appcmd =~ /^([^ ]+) +(.+)$/;
+my $pidfile = "$ENV{DAEMONIZER_PIDFILE_DIR}/$app.pid";
+
+die "Application is not specified" unless $appcmd;
+die "Log file is not specified" unless $log;
+
+# Redirecting STDERR and STDOUT to a log file
+open STDOUT, ">", $log or die "Cannot open log file $log";
+open STDERR, ">&STDOUT";
+
+fork and exit;
+# Creating a PID file. It can be done only here because of forking
+# die "Daemonizer: there is no such file - $cmdline" unless -e $cmdline;
+# Making a second fork() to completely detach from the terminal, the same thing "nohup" or "disown -h" do
+my $pid = fork();
+if ($pid) { # Parent
+    # After-start actions. Should be run before setup_sigalrm_handler because it will wake the process
+    # from a necessary sleep otherwise and a post-start delay may be not enough
+    run_post_start_script($ENV{DAEMONIZER_APPSCRIPTS_DIR}, $app);
+    # Check every N seconds for the missing PID file. Kill the managed app if that's the case
+    setup_sigalrm_handler($pid, $pidfile);
+    # Wait for the child to exit
+    waitpid $pid, 0;
+    # Disable SIGALRM, we don't need it anymore (the child is dead)
+    alarm 0;
+    # Retrieve and display status
+    my $status = $? >> 8;
+    open my $log_fh, '>>', $log;
+    print $log_fh "Daemonizer: $app has finished its execution with status $status\n";
+    unlink $pidfile;
+} else { # Child
+    create_pidfile($pidfile, $app);
+    exec("$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app") or die "Cannot exec '$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app'!";
+}

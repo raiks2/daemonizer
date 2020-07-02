@@ -1,0 +1,44 @@
+#!/usr/bin/perl
+
+=pod
+    This is a real-world script slightly modified due to NDA issues. All real names are stripped
+    The script was used to run a REST API written in Java as well as check its health and resource consumption
+=cut
+
+use strict;
+use warnings;
+use Data::Dumper;
+use JSON 'decode_json';
+
+my $cmd = $ARGV[0] // '';
+
+my $app_name     = "Travel REST API";
+my $server_port  = $ENV{SERVER_PORT} // 10000;
+my $jvm          = '/usr/bin/java';
+my $jvm_props    = "-Dserver.port=$server_port -Dspring.profiles.active=dev -Dauthorization.enabled=1";
+my $jar          = '/home/raiks/git/main/java/STC-WS/build/libs/webservice-0.1.0.jar';
+my $url          = "http://localhost:$server_port/tourReview/1";
+
+my @commands = qw(check showport showmem);
+local $" = '|';
+
+if ($cmd eq 'check') {                                              # Checks the functionality by retrieving a list of entries
+    my $tour_review = decode_json(qx(curl -v $url 2>/dev/null)) || [];
+    print $tour_review->{content} eq 'It was so nice to visit magnificent Anchorage!' ? "OK\n" : "Not OK\n";
+} elsif ($cmd eq 'showport') {                                      # Shows a port the service is listening on
+    my ($port) = qx(sudo netstat -anp | grep $server_port | grep LISTEN) =~ m|(\d+)/\w+|;
+    print "$port\n";
+} elsif ($cmd eq 'showmem') {                                       # Prints an amount of memory used by a process
+    my $pid = qx(DAEMONIZER_PARSABLE_OUTPUT=1 daemonizer stc-ws show);
+    if ($pid) {
+        print qx(ps -o rss $pid | tail -1)
+    }
+} elsif ($cmd eq 'listcommands') {
+    print "@commands\n";
+}elsif ($cmd eq '') {
+    my $cmdline = "$jvm $jvm_props -jar $jar";
+    print "Starting $app_name, command line: $cmdline\n";
+    exec($cmdline);
+} else {
+    die "Unknown command '$cmd!'";
+}

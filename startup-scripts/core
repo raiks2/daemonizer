@@ -1,0 +1,28 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+
+my $cmd = shift @ARGV // '';
+die "DAEMONIZER_APPSCRIPTS_DIR environment variable is not defined" unless $ENV{DAEMONIZER_APPSCRIPTS_DIR};
+die "DAEMONIZER_BASE_DIR environment variable is not defined" unless $ENV{DAEMONIZER_BASE_DIR};
+
+if ($cmd eq 'showscripts') {
+    print "Listing startup scripts...\n";
+    opendir my $dh, $ENV{DAEMONIZER_APPSCRIPTS_DIR} or die "Cannot read the '$ENV{DAEMONIZER_APPSCRIPTS_DIR}' directory!";
+    my @files = grep { $_ ne '..' and $_ ne '.' and $_ !~ '\.conf' } readdir $dh;
+    print Data::Dumper->Dump([\@files], ['startup_scripts']);
+} elsif ($cmd eq 'showpidfiles') {
+    print "Listing pidfiles...\n";
+    opendir my $dh, $ENV{DAEMONIZER_PIDFILE_DIR} or die "Cannot read the '$ENV{DAEMONIZER_PIDFILE_DIR}' directory!";
+    my @files = grep { $_ ne '..' and $_ ne '.' } readdir $dh;
+    print Data::Dumper->Dump([\@files], ['pidfiles']);
+} elsif ($cmd eq 'help') {
+    local $/ = undef;
+    open my $fh, '<', "$ENV{DAEMONIZER_BASE_DIR}/README.md" or die "Failed to open file '$ENV{DAEMONIZER_BASE_DIR}/README.md'";
+    print <$fh>;
+} else {
+    die "Command '$cmd' is not known to core!";
+}

@@ -1,0 +1,31 @@
+#!/usr/bin/perl
+
+=pod
+    This is an example startup script showing how things should work
+
+    Startup script's responsibility is:
+        a) If the first command-line parameter is recognized, execute it
+        b) If it's empty, run the program
+        c) If the command is unknown, die with a descriptive message
+
+   It's also very desirable for a start script to implement the "listcommands" command
+   A developer can also check the DAEMONIZER_PARSABLE_OUTPUT varable and generate output accordingly
+=cut
+
+my $cmd = shift @ARGV // '';
+my $SCRIPT_NAME = 'sleeper';
+my @AVAILABLE_COMMANDS = qw(check);
+
+# A custom "check" method
+if ($cmd eq 'check') {
+    print qx(ps -edf | grep sleep);
+} elsif ($cmd eq '') {
+    # In an example below we use synthax making Perl use execvp directly, skipping the shell invocation
+    my $prog_text = 'sleep 60; print qq{Done\n}';
+    exec('/usr/bin/perl', '-e', $prog_text);
+} elsif ($cmd eq 'listcommands') {
+    local $" = ', ';
+    print "Available commands for the script $SCRIPT_NAME: (@AVAILABLE_COMMANDS)\n";
+} else {
+    die "Unknown command '$cmd!'";
+}

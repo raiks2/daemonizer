@@ -1,0 +1,202 @@
+#!/usr/bin/perl
+
+# This is a runner script managing an application's lifecycle by executing the following actions:
+# start, stop, show. It invokes a "daemonize" script as a part of the "start" action
+
+use strict;
+use warnings;
+use Data::Dumper;
+
+=pod
+    Slurps an entire file into a string
+    IN:  file name
+    OUT: entire file as a string
+=cut
+
+sub read_file_contents {
+    my $file = shift;
+    if (-e $file) {
+        open my $fh, '<', $file;
+        local $/ = undef;
+        my $content = <$fh>;
+        return $content;
+    }
+}
+
+=pod
+    Reads an app-specific configuration file
+    IN:  configuration file name
+    OUT: file content
+=cut
+
+sub read_config {
+    my $file = shift;
+    our $CONFIG;
+    if (-e $file) {
+        do $file;
+    }
+    return $CONFIG // {};
+}
+
+=pod
+    Sends a signal to a process or a process group
+    IN:  signal (a string literal or an integer), pid of the process /group to kill,
+         a flag indicating that the signal should be sent to a process group
+    OUT: signal sending result
+=cut
+
+sub send_signal {
+    my ($signal, $pid, $kill_group) = @_;
+    $signal = "-$signal" if $kill_group;
+    return kill $signal, $pid;
+}
+
+=pod
+    Starts a controlled process
+    IN:  app name, app command name, startup mode, pid file name, log file name, force start flag
+=cut
+
+sub start {
+    my ($app, $appcmd, $mode, $pidfile, $log, $forcestart) = @_;
+    unless ($forcestart) {
+        print "Starting $app...\n";
+        if (-e $pidfile) {
+            my $pid = read_file_contents($pidfile);
+            print "Sorry, $app is already running, PID = $pid.\nIf you consider this a mistake, please delete the pidfile $pidfile\n";
+            return;
+        }
+        print "Type 'daemonizer $app show' to get its PID and references to other commands.\n";
+    } else {
+        print "Forcibly starting $app... An existing pidfile won't be respected, so duplicate instances can emerge!\n";
+    }
+    # Start a new instance in foreground or background mode
+    if ($mode eq 'fg') {
+        exec "$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app" or die "Cannot exec '$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app'!";
+    } elsif ($mode eq 'background') {
+        exec "daemonize '$appcmd' $log" or die "Cannot exec 'daemonize '$appcmd' $log'!";
+    } else {
+        die "Unknown deamonizer mode: $mode";
+    }
+}
+
+=pod
+    Stops a controlled process
+    IN:  app name, pid file name
+=cut
+
+sub stop {
+    my ($app, $pidfile, $config) = @_;
+    # Stop an instance
+    print "Stopping $app...\n";
+    my $pid = read_file_contents($pidfile);
+    if ($pid) {
+        my $timeout = 10;
+        my $seconds_passed = 0;
+        my $stop_signal = $config->{stop_signal} // 'TERM';
+        my $kill_group  = $config->{kill_group}  // 0;
+        print "Attempting to stop the $app (pid = $pid) with signal $stop_signal...\n";
+        send_signal($stop_signal, $pid, $kill_group);
+
+        for (1..$timeout) {
+            # If a process is dead, stop checking
+            last unless send_signal('ZERO', $pid, $kill_group);
+            print "The process with PID $pid is still alive, waiting for 1 more second...\n";
+            $seconds_passed++;
+            sleep 1;
+        }
+
+        if ($seconds_passed == $timeout) {
+            $stop_signal = 'KILL';
+            print "$timeout-second timeout has expired, forcibly killing $pid with $stop_signal.\n";
+            send_signal($stop_signal, $pid, $kill_group)
+        } else {
+            print "The process with PID $pid voluntarily exited after $seconds_passed seconds of waiting.\n";
+        }
+
+        unlink "$pidfile";
+        print "Done\n";
+    } else {
+        print "$app seems to be stopped already!\n";
+    }
+}
+
+=pod
+    Prints a controlled process' pid information
+    IN:  app name, log file name, process pid file name
+=cut
+
+sub show {
+    my ($app, $log, $pidfile) = @_;
+    my $parsable = $ENV{DAEMONIZER_PARSABLE_OUTPUT};
+    # Show a PID of the running instance
+    my $pid = read_file_contents($pidfile);
+    if ($pid) {
+        if ($parsable) {
+            print $pid;
+        } else {
+            print "$app is running, PID = $pid\n";
+            print "pid file: $pidfile. Remove it if you believe this is not true\n";
+            print "log file: $log. Type 'daemonizer $app showlog' to see its contents'\n";
+        }
+    } else {
+        unless ($parsable) {
+            print "$app is NOT running\n";
+        }
+    }
+}
+
+=pod
+    Prints a controlled process' log content
+    IN:  log file name, pid file name
+=cut
+
+sub showlog {
+    my ($log, $pidfile) = @_;
+    my $log_contents = read_file_contents($log);
+    unless (-e $pidfile) {
+        print "[!] daemonizer: PID file doesn't exist. You are reading a log of a defunct process.\n\n";
+    }
+    print ">>> Log file start <<<\n\n";
+    print $log_contents;
+    print "\n>>> Log file end <<<\n";
+}
+
+my ($appcmd, $mode) = @ARGV;
+die "Application command line is not specified!" unless $appcmd;
+$mode //= 'background';
+my ($app, $cmd) = $appcmd =~ /^([^ ]+) +(.+)$/;
+die "Application command line is malformed, must contain <app> <cmd>!" if !$app or !$cmd;
+die "Essential environment variables DAEMONIZER_PIDFILE_DIR and DAEMONIZER_LOGFILE_DIR are not set!" if !$ENV{DAEMONIZER_PIDFILE_DIR} or !$ENV{DAEMONIZER_LOGFILE_DIR};
+my $pidfile = "$ENV{DAEMONIZER_PIDFILE_DIR}/$app.pid";
+my $log = "$ENV{DAEMONIZER_LOGFILE_DIR}/$app.log";
+
+die "Sorry, the startup script '$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app' does not exist!" unless -e "$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app";
+
+# "core" is a special case which allows to invoke commands internal to daemonizer
+# For example, you can check the list of startup scripts or pidfiles
+if ($app eq 'core') {
+    exec "$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app $cmd" or die "Cannot exec '$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app $cmd'!";
+}
+
+my $config = read_config("$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app.conf");
+
+if ($cmd eq 'start') {
+    my $forcestart = 0;
+    start($app, $appcmd, $mode, $pidfile, $log, $forcestart);
+} elsif ($cmd eq 'forcestart') {
+    my $forcestart = 1;
+    start($app, $appcmd, $mode, $pidfile, $log, $forcestart);
+} elsif ($cmd eq 'stop') {
+    stop($app, $pidfile, $config);
+} elsif ($cmd eq 'restart') {
+    stop($app, $pidfile);
+    start($app, $appcmd, $mode, $pidfile, $log);
+} elsif ($cmd eq 'show') {
+    show($app, $log, $pidfile);
+} elsif ($cmd eq 'showlog') {
+    showlog($log, $pidfile);
+} elsif ($cmd ne '') {
+    exec "$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app $cmd" or die "Cannot exec '$ENV{DAEMONIZER_APPSCRIPTS_DIR}/$app $cmd'";
+} else {
+    die "A command must be specified!";
+}

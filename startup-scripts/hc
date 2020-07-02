@@ -1,0 +1,5 @@
+#!/usr/bin/perl
+
+use HTTP::Server::Brick;
+
+HTTP::Server::Brick->new(port=>9002)->mount("/" => sub { $_[1]->header("Content-Type" => "text/plain"); my $out = qx|perl /home/raiks/opt/health_checker/hc.pl 2>&1|; $_[1]->add_content($out); 1 })->start;
