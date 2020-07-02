@@ -19,9 +19,9 @@ Without daemonizer doing it is a laborious task. You will have to do the followi
 # Installation:
 
 1) Unpack daemonizer'es archive into any directory
-2) Change the PATH variable in ~/.bashrc (assuming you unpacked daemonizer to "/opt/daemonizer"):
+2) Change the PATH variable in `~/.bashrc` (assuming you unpacked daemonizer to `/home/${username}/opt/daemonizer`"):
 
-export PATH=/opt/daemonizer:$PATH
+`$ export PATH=/opt/daemonizer:$PATH`
 
 # Component's responsibility:
 
