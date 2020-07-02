@@ -47,15 +47,17 @@ need to create a separate startup script for each of them).
 # Examples:
 
 Note: there is a sample script called "sleeper" that can be used to verify the functionality. It just
-sleeps for 60 seconds.
+sleeps for 60 seconds and then exits.
 ```
 $ daemonizer sleeper start
 $ daemonizer sleeper show     # Shows a PID and a log file location
 $ daemonizer sleeper showlog  # Prints a log file content
 $ daemonizer sleeper stop
 ```
-In addition, your startup script might want to send SIGHUP to the controlled application
-in order to force it to reload the changed configuration.
+In addition, your startup script might want to send, for example, SIGHUP to the controlled application
+in order to force it to reload the changed configuration. Or it might want to check the service's
+health by callingone of its endpoints. This is possible with daemonizer. To make sure the startup
+script supports custom commands, run the following (for the "sleeper"):
 
 `$ daemonizer sleeper listcommands # Prints a list of the application-specific commands`
 
